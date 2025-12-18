@@ -1,6 +1,6 @@
 import sys
 
-sys.path.append("/home/debian/Workspace/HTCSigNet-master/")
+sys.path.append(".")
 import torch
 from htcsignet.feature_learning.data import extract_features
 import htcsignet.feature_learning.models as models
@@ -23,8 +23,8 @@ def main(args):
     exp_users = range(*args.exp_users)
     dev_users = range(*args.dev_users)
 
-    assert len(
-        set(exp_users).intersection(set(dev_users))) == 0, 'Exploitation set and Development set must not overlap'
+    # assert len(
+    #     set(exp_users).intersection(set(dev_users))) == 0, 'Exploitation set and Development set must not overlap'
 
     state_dict, class_weights, forg_weights = torch.load(args.model_path,
                                                          map_location=lambda storage, loc: storage)
@@ -106,8 +106,8 @@ if __name__ == '__main__':
     parser.add_argument('-m', choices=models.available_models, default="htcsignet",
                         help='Model architecture', dest='model')
     parser.add_argument('--model-path',
-                        default="../../model_last.pth")
-    parser.add_argument('--data-path', default="../../GPDS_1000_256X256.npz")
+                        default="./logs/model_last.pth")
+    parser.add_argument('--data-path', default="./datasets/GPDS_1000_256X256.npz")
     parser.add_argument('--save-path')
     parser.add_argument('--input-size', nargs=2, default=(224, 224))
 

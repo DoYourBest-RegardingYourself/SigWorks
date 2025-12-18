@@ -2,3 +2,13 @@
 .pixi/*
 !.pixi/config.toml
 .vscode
+*.lock
+__pycache__/
+*.pyc
+.DS_Store
+.env
+
+datasets/
+logs/
+*.pth
+*.pt

@@ -277,8 +277,8 @@ if __name__ == '__main__':
     argparser.add_argument('--freeze_layers', default='True')
     argparser.add_argument('--logdir', help='logdir', default='./logs/')
     argparser.add_argument('--lr', help='learning rate', default=1e-5, type=float)
+    argparser.add_argument('--forg', type=bool, help='Train with forgeries detection task', default=True)
     arguments = argparser.parse_args()
-    arguments.forg = None
     print(arguments)
 
     main(arguments)
