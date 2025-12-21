@@ -106,7 +106,7 @@ if __name__ == '__main__':
     parser.add_argument('-m', choices=models.available_models, default="htcsignet",
                         help='Model architecture', dest='model')
     parser.add_argument('--model-path',
-                        default="./logs/model_last.pth")
+                        default="./model_checkpoint/model_last.pth")
     parser.add_argument('--data-path', default="./datasets/GPDS_1000_256X256.npz")
     parser.add_argument('--save-path')
     parser.add_argument('--input-size', nargs=2, default=(224, 224))
