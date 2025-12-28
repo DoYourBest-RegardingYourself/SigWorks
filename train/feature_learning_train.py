@@ -266,7 +266,7 @@ if __name__ == '__main__':
     argparser.add_argument('--input-size', help='Input size (cropped)', nargs=2, type=int, default=(224, 224))
     argparser.add_argument('--users', nargs=2, type=int, default=(300, 1000))
 
-    argparser.add_argument('--model', default='htcsignet', choices=models.available_models)
+    argparser.add_argument('--model', default='vig', choices=models.available_models)
     argparser.add_argument('--batch-size', help='Batch size', type=int, default=32)
 
     argparser.add_argument('--lr-decay', help='learning rate decay (multiplier)', default=0.1, type=float)

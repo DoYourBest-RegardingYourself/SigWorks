@@ -1,9 +1,13 @@
+import sys
+
+sys.path.append(".")
+
 import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import Sequential as Seq
-from gcn_lib import Grapher, act_layer
+from vanilla_vig.gcn_lib import Grapher, act_layer
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.models.helpers import load_pretrained
