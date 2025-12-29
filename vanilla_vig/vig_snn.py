@@ -425,7 +425,10 @@ class SpikingDeepGCN(nn.Module):
 
     def reset(self):
         """重置所有脉冲神经元的状态"""
-        functional.reset_net(self)
+        for m in self.modules():
+            if hasattr(m, 'reset') and m is not self:
+                if isinstance(m, (neuron.LIFNode, neuron.IFNode, neuron.ParametricLIFNode)):
+                    m.reset()
 
 
 @register_model
