@@ -1,8 +1,3 @@
-"""
-SNN版本的特征学习训练脚本
-使用SpikingJelly库训练脉冲神经网络
-"""
-
 import sys
 import os
 sys.path.append(".")
@@ -279,7 +274,7 @@ def main(args):
     if '_snn' not in args.model:
         raise ValueError('Please select an SNN model for SNN training.')
     base_model = models.available_models[args.model](args.weights).to(device)
-    # 注意: 不使用 torch.compile，因为 SpikingJelly 与 dynamo 不兼容
+
     # base_model = torch.compile(base_model)
     
     # 分类层和伪造检测层
@@ -295,7 +290,7 @@ def main(args):
     print('Training SNN')
     train(base_model, classification_layer, forg_layer, train_loader, val_loader,
           device, args, logdir)
-
+1
 
 def setup_data_loaders(data, batch_size, input_size):
     label_encoder = LabelEncoder()
@@ -357,6 +352,9 @@ if __name__ == '__main__':
     argparser.add_argument('--lamb', type=float, default=0.95, help='Lambda for loss weighting')
     argparser.add_argument('--model_checkpoint', help='model checkpoint', default='./model_checkpoint_snn/')
     argparser.add_argument('--forg', type=bool, help='Train with forgeries detection task', default=True)
+    
+    argparser.add_argument('--weights', default=None) #'../../vit_base_patch16_224.pth'
+
     
     arguments = argparser.parse_args()
     print("=" * 60)

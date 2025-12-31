@@ -40,7 +40,6 @@ default_cfgs = {
     ),
 }
 
-
 def spiking_act_layer(act, tau=2.0, detach_reset=True, backend='torch'):
     """
     返回脉冲神经元层，替代原来的激活函数
@@ -99,7 +98,6 @@ class SpikingFFN(base.MemoryModule):
         
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
-    @torch.compiler.disable
     def forward(self, x):
         # x shape: [T, B, C, H, W] 其中T是时间步
         shortcut = x
@@ -143,7 +141,6 @@ class SpikingStem(base.MemoryModule):
         self.bn5 = layer.BatchNorm2d(out_dim, step_mode='m')
         # 最后一层不加脉冲神经元，保持特征
 
-    @torch.compiler.disable
     def forward(self, x):
         # x shape: [T, B, C, H, W]
         x = self.sn1(self.bn1(self.conv1(x)))
@@ -198,7 +195,6 @@ class SpikingGrapher(base.MemoryModule):
         
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
-    @torch.compiler.disable
     def forward(self, x):
         # x shape: [T, B, C, H, W]
         _tmp = x
@@ -237,7 +233,6 @@ class SpikingDyGraphConv2d(base.MemoryModule):
         else:
             raise NotImplementedError('conv:{} is not supported'.format(conv))
 
-    @torch.compiler.disable
     def forward(self, x, relative_pos=None):
         # x shape: [T, B, C, H, W]
         T, B, C, H, W = x.shape
@@ -274,7 +269,6 @@ class SpikingMRConv2d(base.MemoryModule):
         self.sn = neuron.LIFNode(tau=tau, detach_reset=True, step_mode='s',
                                   surrogate_function=surrogate.ATan())
 
-    @torch.compiler.disable
     def forward(self, x, edge_index, y=None):
         x_i = self.batched_index_select(x, edge_index[1])
         if y is not None:
@@ -305,7 +299,6 @@ class SpikingEdgeConv2d(base.MemoryModule):
         self.sn = neuron.LIFNode(tau=tau, detach_reset=True, step_mode='s',
                                   surrogate_function=surrogate.ATan())
 
-    @torch.compiler.disable
     def forward(self, x, edge_index, y=None):
         x_i = self.batched_index_select(x, edge_index[1])
         if y is not None:
@@ -391,8 +384,8 @@ class SpikingDeepGCN(base.MemoryModule):
                 if m.bias is not None:
                     m.bias.data.zero_()
                     m.bias.requires_grad = True
-
-    @torch.compiler.disable
+    
+    @torch.compile
     def forward(self, inputs):
         """
         Args:
@@ -428,6 +421,7 @@ class SpikingDeepGCN(base.MemoryModule):
         
         return x
 
+    @torch.compiler.disable(recursive=True)
     def reset(self):
         """重置所有脉冲神经元的状态"""
         for m in self.modules():
