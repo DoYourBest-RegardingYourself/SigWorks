@@ -38,3 +38,6 @@ einops = { version = ">=0.8.0" }
 
 #vig
 timm = { version = ">=0.5.1" }
+
+#formatter
+black = { version = ">=23.9.1" }

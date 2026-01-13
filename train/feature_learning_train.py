@@ -229,7 +229,7 @@ def main(args):
     
     n_classes = len(np.unique(data[1]))
     base_model = models.available_models[args.model](args.weights).to(device)
-    base_model = torch.compile(base_model)
+    # base_model = torch.compile(base_model)
     #base_model = models.available_models[args.model](args.weights)
     #base_model = torch.nn.DataParallel(base_model, device_ids=[0, 1]).cuda()
     classification_layer = nn.Linear(1280, n_classes).to(device)
