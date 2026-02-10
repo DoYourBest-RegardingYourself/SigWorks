@@ -212,6 +212,163 @@ class SigNetSNN_smaller(nn.Module):
         return spike_out / self.T
 
 
+# ===================== 小波增强 SNN 模型 =====================
+
+class SigNetSNN_Wavelet(nn.Module):
+    """
+    支持小波频率增强的SigNet SNN模型
+    
+    接收格式: [B, T, C, H, W] - 每个时间步包含原图+对应频率成分
+    其中 C = 2 (原始灰度图 + 频率成分)
+    """
+    
+    def __init__(self, num_classes=10, T=4, tau=2.0, in_channels=2):
+        """
+        Args:
+            num_classes: 分类类别数
+            T: 时间步数 (SNN仿真步数)
+            tau: LIF神经元的时间常数
+            in_channels: 输入通道数 (原图+频率成分)
+        """
+        super(SigNetSNN_Wavelet, self).__init__()
+        
+        self.T = T
+        self.in_channels = in_channels
+        self.feature_space_size = 2048
+        
+        # 输入融合层：将多通道输入融合
+        self.input_fusion = nn.Sequential(
+            layer.Conv2d(in_channels, 32, kernel_size=3, padding=1, bias=False),
+            layer.BatchNorm2d(32),
+            neuron.LIFNode(tau=tau, surrogate_function=surrogate.ATan()),
+            layer.Conv2d(32, 1, kernel_size=1, bias=False),
+        )
+        
+        self.conv_layers = nn.Sequential(OrderedDict([
+            ('conv1', conv_bn_lif(1, 96, 11, stride=4, tau=tau)),
+            ('maxpool1', layer.MaxPool2d(3, 2)),
+            ('conv2', conv_bn_lif(96, 256, 5, pad=2, tau=tau)),
+            ('maxpool2', layer.MaxPool2d(3, 2)),
+            ('conv3', conv_bn_lif(256, 384, 3, pad=1, tau=tau)),
+            ('conv4', conv_bn_lif(384, 384, 3, pad=1, tau=tau)),
+            ('conv5', conv_bn_lif(384, 256, 3, pad=1, tau=tau)),
+            ('maxpool3', layer.MaxPool2d(3, 2)),
+        ]))
+        
+        self.fc_layers = nn.Sequential(OrderedDict([
+            ('fc1', linear_bn_lif(6400, 2048, tau=tau)),
+            ('fc2', linear_bn_lif(self.feature_space_size, self.feature_space_size, tau=tau)),
+        ]))
+        
+        self.fc = layer.Linear(self.feature_space_size, num_classes)
+    
+    def forward(self, inputs):
+        """
+        前向传播
+        
+        Args:
+            inputs: 
+                - 如果启用小波增强: [B, T, C, H, W] 每个时间步有不同的频率输入
+                - 如果未启用: [B, C, H, W] 所有时间步使用相同输入
+        
+        Returns:
+            脉冲发放率 [B, feature_space_size]
+        """
+        functional.reset_net(self)
+        
+        # 检查输入格式
+        if len(inputs.shape) == 5:
+            # [B, T, C, H, W] - 小波增强格式
+            B, T, C, H, W = inputs.shape
+            assert T == self.T, f"Input timesteps {T} != model timesteps {self.T}"
+            wavelet_mode = True
+        else:
+            # [B, C, H, W] - 标准格式
+            wavelet_mode = False
+        
+        spike_out = 0
+        
+        for t in range(self.T):
+            if wavelet_mode:
+                # 使用该时间步对应的输入（包含对应频率成分）
+                x_t = inputs[:, t, :, :, :]  # [B, C, H, W]
+            else:
+                x_t = inputs
+            
+            # 融合多通道输入
+            x = self.input_fusion(x_t)
+            
+            # 主干网络
+            x = self.conv_layers(x)
+            flattened_size = x.view(x.size(0), -1).shape[1]
+            x = x.view(x.size(0), flattened_size)
+            x = self.fc_layers(x)
+            
+            spike_out = spike_out + x
+        
+        return spike_out / self.T
+
+
+class SigNetSNN_thin_Wavelet(nn.Module):
+    """SigNet_thin 的小波增强 SNN 版本"""
+    
+    def __init__(self, T=4, tau=2.0, in_channels=2):
+        super(SigNetSNN_thin_Wavelet, self).__init__()
+        
+        self.T = T
+        self.in_channels = in_channels
+        self.feature_space_size = 1024
+        
+        # 输入融合层
+        self.input_fusion = nn.Sequential(
+            layer.Conv2d(in_channels, 16, kernel_size=3, padding=1, bias=False),
+            layer.BatchNorm2d(16),
+            neuron.LIFNode(tau=tau, surrogate_function=surrogate.ATan()),
+            layer.Conv2d(16, 1, kernel_size=1, bias=False),
+        )
+        
+        self.conv_layers = nn.Sequential(OrderedDict([
+            ('conv1', conv_bn_lif(1, 96, 11, stride=4, tau=tau)),
+            ('maxpool1', layer.MaxPool2d(3, 2)),
+            ('conv2', conv_bn_lif(96, 128, 5, pad=2, tau=tau)),
+            ('maxpool2', layer.MaxPool2d(3, 2)),
+            ('conv3', conv_bn_lif(128, 128, 3, pad=1, tau=tau)),
+            ('conv4', conv_bn_lif(128, 128, 3, pad=1, tau=tau)),
+            ('conv5', conv_bn_lif(128, 128, 3, pad=1, tau=tau)),
+            ('maxpool3', layer.MaxPool2d(3, 2)),
+        ]))
+        
+        self.fc_layers = nn.Sequential(OrderedDict([
+            ('fc1', linear_bn_lif(128 * 3 * 5, self.feature_space_size, tau=tau)),
+            ('fc2', linear_bn_lif(self.feature_space_size, self.feature_space_size, tau=tau)),
+        ]))
+    
+    def forward(self, inputs):
+        functional.reset_net(self)
+        
+        if len(inputs.shape) == 5:
+            B, T, C, H, W = inputs.shape
+            wavelet_mode = True
+        else:
+            wavelet_mode = False
+        
+        spike_out = 0
+        
+        for t in range(self.T):
+            if wavelet_mode:
+                x_t = inputs[:, t, :, :, :]
+            else:
+                x_t = inputs
+            
+            x = self.input_fusion(x_t)
+            x = self.conv_layers(x)
+            x = x.view(x.shape[0], 128 * 3 * 5)
+            x = self.fc_layers(x)
+            spike_out = spike_out + x
+        
+        return spike_out / self.T
+
+
 # ===================== 原始 ANN 模型 (保留用于对比) =====================
 
 class SigNet(nn.Module):

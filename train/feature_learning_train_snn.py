@@ -20,7 +20,7 @@ from torch.utils.data import TensorDataset, random_split, DataLoader
 from torchvision import transforms
 
 import htcsignet.datasets.util as util
-from htcsignet.feature_learning.data import TransformDataset
+from htcsignet.feature_learning.data import TransformDataset, WaveletTransformDataset
 
 # SpikingJelly imports
 from spikingjelly.activation_based import functional
@@ -56,7 +56,7 @@ def train(base_model: torch.nn.Module,
     best_acc = 0
     best_params = get_parameters(base_model, classification_layer, forg_layer)
 
-    for epoch in track(range(args.epochs), description=f"Training SNN"):
+    for epoch in range(args.epochs):
         # Train one epoch; evaluate on validation
         train_epoch_snn(train_loader, base_model, classification_layer, forg_layer,
                         epoch, optimizer, lr_scheduler, device, args)
@@ -262,7 +262,15 @@ def main(args):
     if not args.forg:
         data = util.remove_forgeries(data, forg_idx=2)
 
-    train_loader, val_loader = setup_data_loaders(data, args.batch_size, args.input_size)
+    # 检查是否使用小波增强模型
+    use_wavelet = 'wavelet' in args.model
+    train_loader, val_loader = setup_data_loaders(
+        data, args.batch_size, args.input_size,
+        use_wavelet=use_wavelet,
+        T=args.timesteps,
+        wavelet=args.wavelet,
+        append_mode=args.wavelet_mode
+    )
     print(f'Data loaders ready: {len(train_loader)} train batches, {len(val_loader)} val batches')
     sys.stdout.flush()
 
@@ -273,26 +281,61 @@ def main(args):
     
     if '_snn' not in args.model:
         raise ValueError('Please select an SNN model for SNN training.')
-    base_model = models.available_models[args.model](args.weights).to(device)
+    
+    # 根据模型类型设置参数
+    if 'wavelet' in args.model:
+        # 小波增强模型需要额外的in_channels参数
+        in_channels = 2 if args.wavelet_mode == 'channel' else 1
+        base_model = models.available_models[args.model](
+            num_classes=n_classes, 
+            T=args.timesteps, 
+            tau=args.tau,
+            in_channels=in_channels
+        ).to(device)
+        print(f'Using wavelet-augmented SNN model with in_channels={in_channels}')
+    else:
+        # SNN模型需要传递正确的参数: num_classes, T, tau
+        base_model = models.available_models[args.model](
+            num_classes=n_classes, 
+            T=args.timesteps, 
+            tau=args.tau
+        ).to(device)
 
     # base_model = torch.compile(base_model)
     
+    # 获取模型的特征空间大小
+    feature_size = base_model.feature_space_size
+    
     # 分类层和伪造检测层
-    classification_layer = nn.Linear(1280, n_classes).to(device)
-    forg_layer = nn.Linear(1280, 1).to(device)
+    classification_layer = nn.Linear(feature_size, n_classes).to(device)
+    forg_layer = nn.Linear(feature_size, 1).to(device)
     
     # 打印模型信息
     total_params = sum(p.numel() for p in base_model.parameters())
     print(f'SNN Model Parameters: {total_params / 1e6:.2f}M')
     print(f'Timesteps (T): {args.timesteps}')
     print(f'Tau: {args.tau}')
+    if 'wavelet' in args.model:
+        print(f'Wavelet: {args.wavelet}, Mode: {args.wavelet_mode}')
 
     print('Training SNN')
     train(base_model, classification_layer, forg_layer, train_loader, val_loader,
           device, args, logdir)
 1
 
-def setup_data_loaders(data, batch_size, input_size):
+def setup_data_loaders(data, batch_size, input_size, use_wavelet=False, T=4, wavelet='db1', append_mode='channel'):
+    """
+    设置数据加载器
+    
+    Args:
+        data: 数据元组 (x, y, yforg)
+        batch_size: 批次大小
+        input_size: 输入尺寸
+        use_wavelet: 是否使用小波增强
+        T: 时间步数 (用于小波增强)
+        wavelet: 小波类型 (如 'db1', 'haar', 'db2')
+        append_mode: 频率附加模式 ('channel', 'add', 'multiply')
+    """
     label_encoder = LabelEncoder()
     y = label_encoder.fit_transform(data[1])
     data = TensorDataset(torch.from_numpy(data[0]), torch.from_numpy(y), torch.from_numpy(data[2]))
@@ -300,19 +343,50 @@ def setup_data_loaders(data, batch_size, input_size):
     sizes = (train_size, len(data) - train_size)
     train_set, test_set = random_split(data, sizes)
     
-    train_transforms = transforms.Compose([
-        transforms.ToPILImage(),
-        transforms.RandomCrop(input_size),
-        transforms.ToTensor(),
-    ])
-    train_set = TransformDataset(train_set, train_transforms)
-    
-    val_transforms = transforms.Compose([
-        transforms.ToPILImage(),
-        transforms.CenterCrop(input_size),
-        transforms.ToTensor(),
-    ])
-    test_set = TransformDataset(test_set, val_transforms)
+    if use_wavelet:
+        # 使用小波增强的数据集
+        print(f'Using wavelet augmentation: wavelet={wavelet}, T={T}, mode={append_mode}')
+        
+        train_base_transforms = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.RandomCrop(input_size),
+            transforms.ToTensor(),
+        ])
+        train_set = WaveletTransformDataset(
+            train_set, 
+            T=T, 
+            base_transform=train_base_transforms,
+            wavelet=wavelet,
+            append_mode=append_mode
+        )
+        
+        val_base_transforms = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.CenterCrop(input_size),
+            transforms.ToTensor(),
+        ])
+        test_set = WaveletTransformDataset(
+            test_set,
+            T=T,
+            base_transform=val_base_transforms,
+            wavelet=wavelet,
+            append_mode=append_mode
+        )
+    else:
+        # 标准数据增强
+        train_transforms = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.RandomCrop(input_size),
+            transforms.ToTensor(),
+        ])
+        train_set = TransformDataset(train_set, train_transforms)
+        
+        val_transforms = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.CenterCrop(input_size),
+            transforms.ToTensor(),
+        ])
+        test_set = TransformDataset(test_set, val_transforms)
     
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
     val_loader = DataLoader(test_set, batch_size=batch_size, num_workers=4, pin_memory=True)
@@ -325,19 +399,26 @@ if __name__ == '__main__':
     
     # 数据相关参数
     argparser.add_argument('--dataset-path', help='Path containing a numpy file with images and labels', 
-                          default='./datasets/GPDS_1000_256X256.npz')
+                          default=r"E:\sigver-master\sigver-master\data\gpds.npz")
     argparser.add_argument('--input-size', help='Input size (cropped)', nargs=2, type=int, default=(224, 224))
     argparser.add_argument('--users', nargs=2, type=int, default=(300, 1000))
 
     # 模型相关参数
-    argparser.add_argument('--model', default='vig_snn', 
-                          choices=['vig_snn',])
+    argparser.add_argument('--model', default='signet_snn', 
+                          choices=['vig_snn', 'signet_snn', 'signet_snn_wavelet', 'signet_snn_thin_wavelet'],
+                          help='Model architecture to use for SNN training')
     argparser.add_argument('--batch-size', help='Batch size', type=int, default=16)  # SNN通常用更小的batch size
 
     # SNN特有参数
     argparser.add_argument('--timesteps', '-T', help='Number of timesteps for SNN', type=int, default=4)
     argparser.add_argument('--tau', help='Membrane time constant for LIF neuron', type=float, default=2.0)
     argparser.add_argument('--grad-clip', help='Gradient clipping value', type=float, default=1.0)
+
+    # 小波增强参数
+    argparser.add_argument('--wavelet', help='Wavelet type for decomposition (db1, haar, db2, coif1, sym2)', 
+                          type=str, default='db1')
+    argparser.add_argument('--wavelet-mode', help='How to append frequency components', 
+                          choices=['channel', 'add', 'multiply'], default='channel')
 
     # 学习率相关参数
     argparser.add_argument('--lr', help='learning rate', default=1e-4, type=float)  # SNN通常需要更大的学习率
